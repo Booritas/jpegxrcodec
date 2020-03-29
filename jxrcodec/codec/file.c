@@ -106,6 +106,7 @@ typedef struct context{
   int format; /* component format code 0..15 */
   unsigned swap : 1; /* byte swapping required ? */
   FILE *file; /* input or output file pointer */
+  FILE *file2; /* output file pointer. Workaround to simulate late file opening */
   void *buf; /* source or destination data buffer */
   int my; /* last MB strip (of 16 lines) read, init to -1 */
   int nstrips; /* num of TIFF strips, 0 for PNM */
@@ -994,7 +995,14 @@ static void start_tif_output_file(context *con)
 
 static void start_raw_output_file(context *con)
 {
-    con->file = fopen(con->name, "w+b");
+    if(con->file2)
+    {
+        con->file = con->file2;
+    }
+    else
+    {
+        con->file = fopen(con->name, "w+b");
+    }
     if (con->file==0)
         error("cannot create RAW output file %s", con->name);
     con->swap = 0;
@@ -3681,6 +3689,35 @@ void separate_primary_alpha(jxr_image_t image, void *input_handle, char *path_ou
 
   close_file(con_primary);
   close_file(con_alpha);
+}
+
+const char* OUTPUT_MEM_NAME = "memory.raw";
+void *open_output_file_h(FILE* file, jxr_container_t c,int write_padding_channel,int is_separate_alpha)
+{
+    context *con = (context*)malloc(sizeof(context));
+    if (con==0)
+        error("unable to allocate memory");
+    con->file = NULL;
+    con->file2 = file;
+    con->container = c;
+    con->name = OUTPUT_MEM_NAME;
+    con->wid = 0;
+    con->hei = 0;
+    con->ncomp = 0;
+    con->bpi = 0;
+    con->format = 0;
+    con->swap = 0;
+    con->buf = 0;
+    con->packBits = 0;
+    con->ycc_format = 0;
+    con->cmyk_format = 0;
+    con->separate = 0;
+    con->padBytes = 0;
+    con->padded_format = write_padding_channel; 
+    con->premultiplied = 0;
+    con->is_separate_alpha = is_separate_alpha;
+
+    return con;
 }
 
 /*

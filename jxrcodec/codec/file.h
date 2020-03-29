@@ -75,6 +75,7 @@
 
 void *open_input_file(const char *name,jxr_container_t c,const raw_info *raw_info_t, int *alpha_mode, int *padded_format);
 void *open_output_file(const char *name,jxr_container_t c,int write_padding_channel,int is_separate_alpha);
+void *open_output_file_h(FILE* file, jxr_container_t c,int write_padding_channel,int is_separate_alpha);
 void get_file_parameters(void *handle, int *wid, int *hei, int *ncomp, int *bpi, short *sf, short *photometric, 
 			 int *padBytes,int *ycc_format,int *premultiplied,int *alpha);
 void read_file(jxr_image_t image, int mx, int my, int *data);

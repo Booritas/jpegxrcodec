@@ -180,7 +180,7 @@ private:
     std::vector<char**> m_buffers;
 };
 
-void jpegxr_decompress(FILE* fd, const char* path_out, uint8_t* buffer, uint32_t buffer_size)
+void jpegxr_decompress(FILE* fd, FILE* output_file, uint8_t* buffer, uint32_t buffer_size)
 {
     jxrflags jflags;
     ContainerKeeper container;
@@ -245,13 +245,13 @@ void jpegxr_decompress(FILE* fd, const char* path_out, uint8_t* buffer, uint32_t
     void *output_handle(nullptr);
     MemoryKeeper primary_keeper((char**)&output_handle);
     //output_handle_primary = open_output_file(buffer, buffer_size, ifile, jflags.padded_format, 0);
-    output_handle = open_output_file(path_out, ifile, jflags.padded_format, 0);
+    output_handle = open_output_file_h(output_file, ifile, jflags.padded_format, 0);
     /*Decode image */
     jxr_image_t image(nullptr), imageAlpha(nullptr);
     jxr_image_t* images[] = {&image, &imageAlpha};
     ImageKeeper image_keeper(images, sizeof(images)/sizeof(images[0]));
     rc = decompress_image(fd, ifile, output_handle, &image, 0, &jflags); 
-    SAFE_CLOSE(output_handle);
+    //SAFE_CLOSE(output_handle);
     if(rc < 0)
     {
         throw std::runtime_error("Failed to decompress image");

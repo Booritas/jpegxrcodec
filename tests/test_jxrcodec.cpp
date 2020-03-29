@@ -35,9 +35,11 @@ TEST(jxrcodec, openFile)
     outputImagePath += ".raw";
 
     FILE* fd = fopen(imagePath.c_str(), "rb");
+    FILE* output_file = fopen(outputImagePath.c_str(), "w+b");
     ASSERT_TRUE(fd!=nullptr);
-    jpegxr_decompress(fd, outputImagePath.c_str(), raster.data(), raster.size());
+    jpegxr_decompress(fd, output_file, raster.data(), raster.size());
     fclose(fd);
+    fclose(output_file);
 
     {
         std::ifstream srcFile(outputImagePath.c_str(), std::ios::binary);
