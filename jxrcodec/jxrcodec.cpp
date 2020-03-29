@@ -185,7 +185,6 @@ void jpegxr_decompress(FILE* fd, const char* path_out, uint8_t* buffer, uint32_t
     jxrflags jflags;
     ContainerKeeper container;
     jxr_container_t ifile = container.getContainer();
-    unsigned int alphaCodedImagePresent = 0;
     const int padded_format = 1;
     std::vector<uint8_t> primary_buffer;
 
@@ -199,7 +198,7 @@ void jpegxr_decompress(FILE* fd, const char* path_out, uint8_t* buffer, uint32_t
     assert(rc >= 0);
     if(jxrc_alpha_offset(ifile, 0))
     {
-        alphaCodedImagePresent = 1;
+        throw std::runtime_error("Alpha channels are not supported!");
     }
     /* read optional IFD tags to make certain of conformance */
     char *document_name = 0, *image_description = 0, *equipment_make = 0, *equipment_model = 0, *page_name = 0;
@@ -243,26 +242,18 @@ void jpegxr_decompress(FILE* fd, const char* path_out, uint8_t* buffer, uint32_t
     alpha_band_present = jxrc_alpha_band_presence(ifile, 0);
     jxrc_padding_data(ifile, 0);
 
-    if(!alphaCodedImagePresent)
+    void *output_handle(nullptr);
+    MemoryKeeper primary_keeper((char**)&output_handle);
+    //output_handle_primary = open_output_file(buffer, buffer_size, ifile, jflags.padded_format, 0);
+    output_handle = open_output_file(path_out, ifile, jflags.padded_format, 0);
+    /*Decode image */
+    jxr_image_t image(nullptr), imageAlpha(nullptr);
+    jxr_image_t* images[] = {&image, &imageAlpha};
+    ImageKeeper image_keeper(images, sizeof(images)/sizeof(images[0]));
+    rc = decompress_image(fd, ifile, output_handle, &image, 0, &jflags); 
+    SAFE_CLOSE(output_handle);
+    if(rc < 0)
     {
-        void *output_handle_primary(nullptr);
-        MemoryKeeper primary_keeper((char**)&output_handle_primary);
-        //output_handle_primary = open_output_file(buffer, buffer_size, ifile, jflags.padded_format, 0);
-        output_handle_primary = open_output_file(path_out, ifile, jflags.padded_format, 0);
-        /*Decode image */
-        jxr_image_t image(nullptr), imageAlpha(nullptr);
-        jxr_image_t* images[] = {&image, &imageAlpha};
-        ImageKeeper image_keeper(images, sizeof(images)/sizeof(images[0]));
-        rc = decompress_image(fd, ifile, output_handle_primary, &image, 0, &jflags); 
-        SAFE_CLOSE(output_handle_primary);
-        if(rc < 0)
-        {
-            throw std::runtime_error("Failed to decompress image");
-        }
+        throw std::runtime_error("Failed to decompress image");
     }
-    else
-    {
-        throw std::runtime_error("Alpha channels are not supported!");
-    }
-
 }
