@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.2)
+
+set(PROJECT_NAME jpegxr-codec)
+set(projectVersion 0.1.0)
+set(INCLUDE_ROOT ${CMAKE_SOURCE_DIR}/src)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(PROJECT_SOURCE_DIR ${CMAKE_SOURCE_DIR})
+set(PROJECT_TEST_DATA_PATH ${CMAKE_SOURCE_DIR}/test-images)
+
+if (MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MDd")
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif()
+
+project(${PROJECT_NAME} VERSION ${projectVersion} LANGUAGES C CXX)
+
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/bin)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/bin)
+set(TEST_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+
+add_subdirectory(jxrcodec)
+
+option(PACKAGE_TESTS "Build the tests" ON)
+if(PACKAGE_TESTS)
+    enable_testing()
+    include(GoogleTest)
+    add_subdirectory(tests)
+endif()
