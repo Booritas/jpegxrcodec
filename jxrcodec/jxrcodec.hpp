@@ -3,5 +3,4 @@
 #include <cstdio>
 #include <vector>
 
-void jpegxr_decompress(FILE* fd, std::vector<uint8_t>& raster);
-int jpegxr_decompress(const char*path_in, std::vector<uint8_t>& raster);
+void jpegxr_decompress(FILE* fd, const char* path_out, uint8_t* buffer, uint32_t buffer_size);

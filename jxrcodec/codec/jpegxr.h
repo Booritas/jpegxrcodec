@@ -79,19 +79,19 @@
 
 # include <stdio.h>
 
-#ifdef _MSC_VER
-# ifdef JXR_DLL_EXPORTS
-# define JXR_EXTERN extern "C" __declspec(dllexport)
-# else
-# define JXR_EXTERN extern "C" __declspec(dllimport)
-# endif
-#else
+//#ifdef _MSC_VER
+//# ifdef JXR_DLL_EXPORTS
+//# define JXR_EXTERN extern "C" __declspec(dllexport)
+//# else
+//# define JXR_EXTERN extern "C" __declspec(dllimport)
+//# endif
+//#else
 # ifdef _cplusplus
 # define JXR_EXTERN extern "C"
 # else
 # define JXR_EXTERN extern
 # endif
-#endif
+//#endif
 
 /* JPEG XR CONTAINER */
 

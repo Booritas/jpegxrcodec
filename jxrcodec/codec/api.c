@@ -453,7 +453,7 @@ void jxr_set_OUTPUT_CLR_FMT(jxr_image_t image, jxr_output_clr_fmt_t fmt)
 
 jxr_output_clr_fmt_t jxr_get_OUTPUT_CLR_FMT(jxr_image_t image)
 {
-    return (jxr_output_clr_fmt_e)SOURCE_CLR_FMT(image); // JNB fix, was: image->output_clr_fmt;
+    return (jxr_output_clr_fmt_t)SOURCE_CLR_FMT(image); // JNB fix, was: image->output_clr_fmt;
 }
 
 

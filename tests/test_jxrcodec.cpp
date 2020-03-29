@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 #include <cstdlib>
 #include "jxrcodec/jxrcodec.hpp"
-
+#include <fstream>
 
 static std::string getTestImagePath(const std::string& imageName)
 {
@@ -23,8 +23,31 @@ TEST(jxrcodec, openMissingFile)
 
 TEST(jxrcodec, openFile)
 {
+    const int image_width = 1000;
+    const int image_height = 667;
+    const int image_channels = 3;
+    const int image_size = image_width*image_height*image_channels;
+
     std::vector<uint8_t> raster;
     std::string imagePath = getTestImagePath("seagull.wdp");
-    jpegxr_decompress(imagePath.c_str(), raster);
-    //std::shared_ptr<JxrFile> file = JxrFile::fromFile(imagePath);
+    std::string decodedImagePath = getTestImagePath("seagull.raw");
+    std::string outputImagePath(std::tmpnam(nullptr));
+    outputImagePath += ".raw";
+
+    FILE* fd = fopen(imagePath.c_str(), "rb");
+    ASSERT_TRUE(fd!=nullptr);
+    jpegxr_decompress(fd, outputImagePath.c_str(), raster.data(), raster.size());
+    fclose(fd);
+
+    {
+        std::ifstream srcFile(outputImagePath.c_str(), std::ios::binary);
+        std::vector<char> src((std::istreambuf_iterator<char>(srcFile)), std::istreambuf_iterator<char>());
+
+        std::ifstream trgFile(decodedImagePath.c_str(), std::ios::binary);
+        std::vector<char> trg((std::istreambuf_iterator<char>(trgFile)), std::istreambuf_iterator<char>());
+
+        ASSERT_EQ(src.size(), trg.size());
+        ASSERT_EQ(memcmp(src.data(), trg.data(), src.size()), 0);
+    }
+    remove(outputImagePath.c_str());
 }
