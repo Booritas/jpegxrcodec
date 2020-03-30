@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include "codec/jpegxr.h"
 #include "jxrcodec_priv.hpp"
+#include <string.h>
 
 extern "C"
 {
