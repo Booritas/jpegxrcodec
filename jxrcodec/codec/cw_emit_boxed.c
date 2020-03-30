@@ -120,8 +120,8 @@ static void jxrc_write_ULONG(jxr_container_t cp,uint32_t d)
   buffer[2] = (d >>  8) & 0xff;
   buffer[3] = (d >>  0) & 0xff;
 
-  if (cp->fd)
-    fwrite(buffer,1,sizeof(buffer),cp->fd);
+  if (bs_is_ready(&cp->data))
+    bs_write(&cp->data, buffer, sizeof(buffer));
   cp->size_counter += 4;
 }
 
@@ -131,8 +131,8 @@ static void jxrc_write_UBYTE(jxr_container_t cp,uint32_t d)
   
   buffer[0] = (d >>  0) & 0xff;
 
-  if (cp->fd)
-    fwrite(buffer,1,sizeof(buffer),cp->fd);
+  if (bs_is_ready(&cp->data))
+    bs_write(&cp->data, buffer,sizeof(buffer));
   cp->size_counter += 1;
 }
 
@@ -143,8 +143,8 @@ static void jxrc_write_UWORD(jxr_container_t cp,uint32_t d)
   buffer[0] = (d >>  8) & 0xff;
   buffer[1] = (d >>  0) & 0xff;
 
-  if (cp->fd)
-    fwrite(buffer,1,sizeof(buffer),cp->fd);
+  if (bs_is_ready(&cp->data))
+    bs_write(&cp->data, buffer, sizeof(buffer));
   cp->size_counter += 2;
 }
 
@@ -165,11 +165,11 @@ static void jxrc_write_box_header(jxr_container_t cp,uint32_t boxtype,uint32_t b
 static void jxrc_write_signature_box(jxr_container_t cp)
 {
   jxrc_write_box_header(cp,MAKE_ID('j','P',' ',' '),12);
-  if (cp->fd) {
-    fputc(0x0d,cp->fd);
-    fputc(0x0a,cp->fd);
-    fputc(0x87,cp->fd);
-    fputc(0x0a,cp->fd);
+  if (bs_is_ready(&cp->data)) {
+    bs_put_byte(&cp->data, 0x0d);
+    bs_put_byte(&cp->data, 0x0a);
+    bs_put_byte(&cp->data, 0x87);
+    bs_put_byte(&cp->data, 0x0a);
   } else {
     cp->size_counter += 4;
   }
@@ -987,11 +987,10 @@ static void jxrc_write_pxfm(jxr_container_t cp)
 */
 static void jxrc_write_jp2h(jxr_container_t cp)
 {
-  FILE *fp = cp->fd;
+  bs_make_unready(&cp->data);
+
   int size = 8; /* the box header. */
 
-  cp->fd = NULL;
-  
   jxrc_write_colorspec(cp);
   size  += cp->size_counter;
   jxrc_write_cdef(cp);
@@ -1003,7 +1002,7 @@ static void jxrc_write_jp2h(jxr_container_t cp)
   /*
   ** Now write the boxes
   */
-  cp->fd = fp;
+  bs_make_ready(&cp->data);
   jxrc_write_box_header(cp,MAKE_ID('j','p','2','h'),size); 
   jxrc_write_colorspec(cp);
   jxrc_write_cdef(cp);
@@ -1042,16 +1041,16 @@ static void jxrc_write_jplh(jxr_container_t cp)
 */
 static void jxrc_write_jpch(jxr_container_t cp)
 { 
-  FILE *fp = cp->fd;
+  bs_make_unready(&cp->data);
+
   int size = 8; /* the box header. */
 
-  cp->fd = NULL;
   jxrc_write_ihdr(cp); 
   size  += cp->size_counter;
   jxrc_write_bpc(cp); 
   size  += cp->size_counter;
 
-  cp->fd = fp;
+  bs_make_ready(&cp->data);
   jxrc_write_box_header(cp,MAKE_ID('j','p','c','h'),size); 
   jxrc_write_ihdr(cp);
   jxrc_write_bpc(cp);
@@ -1082,7 +1081,6 @@ static void jxrc_write_jpch_alpha(jxr_container_t cp)
  
 int jxrc_start_file_boxed(jxr_container_t cp, FILE*fd)
 {
-  assert(cp->fd == 0);
 
   /* initializations */
   cp->image_count_mark = 0;
@@ -1090,7 +1088,7 @@ int jxrc_start_file_boxed(jxr_container_t cp, FILE*fd)
   cp->alpha_offset_mark = 0;
   cp->alpha_band = 0;
 
-  cp->fd = fd;
+  bs_init_file(&cp->data, fd, 1);
 
   
   jxrc_write_signature_box(cp);
@@ -1102,7 +1100,7 @@ int jxrc_start_file_boxed(jxr_container_t cp, FILE*fd)
   jxrc_write_jplh(cp);
   
   /* The first codestream. The length is fixed later. */
-  cp->image_offset_mark = ftell(cp->fd);
+  cp->image_offset_mark = bs_tell(&cp->data);
   jxrc_write_box_header(cp,MAKE_ID('j','p','2','c'),0);
   return 0;
 }
@@ -1114,19 +1112,19 @@ int jxrc_begin_image_data_boxed(jxr_container_t cp)
 
 int jxrc_write_container_post_boxed(jxr_container_t cp)
 {
-      uint32_t mark = ftell(cp->fd);
+      uint32_t mark = bs_tell(&cp->data);
 
       assert(mark > cp->image_offset_mark);
       uint32_t count = mark - cp->image_offset_mark; /* 8 is the box header */
 
       DEBUG("CONTAINER: measured bitstream count=%u\n", count);
 
-      fflush(cp->fd);
-      fseek(cp->fd, cp->image_offset_mark, SEEK_SET);
+      bs_flush(&cp->data);
+      bs_seek(&cp->data, cp->image_offset_mark, SEEK_SET);
       jxrc_write_ULONG(cp,count);
 
       if(cp->separate_alpha_image_plane) {
-	fseek(cp->fd, mark, SEEK_SET);
+	bs_seek(&cp->data, mark, SEEK_SET);
 	cp->alpha_offset_mark = mark;
 	jxrc_write_box_header(cp,MAKE_ID('j','p','2','c'),0);
       }
@@ -1135,13 +1133,13 @@ int jxrc_write_container_post_boxed(jxr_container_t cp)
 
 int jxrc_write_container_post_alpha_boxed(jxr_container_t cp)
 {
-      uint32_t mark  = ftell(cp->fd);
+      uint32_t mark  = bs_tell(&cp->data);
       uint32_t count = mark - cp->alpha_offset_mark;
       DEBUG("CONTAINER: measured alpha count=%u\n", count);
       
       if(cp->separate_alpha_image_plane) {
-	fflush(cp->fd);
-	fseek(cp->fd, cp->alpha_offset_mark, SEEK_SET);
+	bs_flush(&cp->data);
+	bs_seek(&cp->data, cp->alpha_offset_mark, SEEK_SET);
 	jxrc_write_ULONG(cp,count);
       }
       return 0;

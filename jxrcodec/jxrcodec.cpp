@@ -4,44 +4,15 @@
 #include "jxrcodec.hpp"
 #include <cassert>
 #include <stdexcept>
+#include "codec/jpegxr.h"
+#include "jxrcodec_priv.hpp"
 
 extern "C"
 {
-#include "codec/jpegxr.h"
 #include "codec/file.h"
 }
 
-#define SAFE_FREE(h) {if(h)free(h); h = NULL;}
-#define SAFE_CLOSE(h) {if(h)close_file(h); h = NULL;}
-#define SAFE_JXR_DESTROY(h) {if(h) jxr_destroy(h); h = NULL;}
-
-#ifdef _MSC_VER
-/* MSVC doesn't have strcasecmp. Use _stricmp instead */
-# define strcasecmp _stricmp
-#else
-# include <unistd.h>
-#endif
-
-struct jxrflags
-{
-    jxrflags() :
-        profile_idc(111),
-        level_idc(255),
-        nflags(0),
-        line_mode(0),
-        long_word_flag_setting(1),
-        padded_format(0)
-    {}
-    int profile_idc;
-    int level_idc;
-    int line_mode;
-    int nflags;
-    int long_word_flag_setting;
-    int padded_format;
-    char* flags[128];
-};
-
-int decompress_image(FILE *fd, jxr_container_t container, void *output_handle, jxr_image_t *pImage, 
+int decompress_image(byte_stream* bs, jxr_container_t container, void *output_handle, jxr_image_t *pImage, 
 			    unsigned char alpha, jxrflags* jflags)
 {
     int rc, idx;
@@ -67,7 +38,7 @@ int decompress_image(FILE *fd, jxr_container_t container, void *output_handle, j
     ** Start mod thor: This is the line-based decoding
     */
     if (jflags->line_mode) {
-      rc = jxr_init_read_stripe_bitstream(*pImage,fd);
+      rc = jxr_init_read_stripe_bitstream(*pImage,bs);
       if (rc >= 0) {
 	/*
 	** Now read lines one by another. The data arrives at
@@ -82,7 +53,7 @@ int decompress_image(FILE *fd, jxr_container_t container, void *output_handle, j
       }
     } else {
       /* Process as an image bitstream. */
-      rc = jxr_read_image_bitstream(*pImage, fd);
+      rc = jxr_read_image_bitstream(*pImage, bs);
     }
     
     if (rc < 0) {
@@ -118,69 +89,8 @@ int decompress_image(FILE *fd, jxr_container_t container, void *output_handle, j
 
 }
 
-class ContainerKeeper
-{
-public:
-    ContainerKeeper(){
-        m_container = jxr_create_container();
-    }
-    ~ContainerKeeper(){
-        if(m_container){
-            jxr_destroy_container(m_container);
-        }
-    }
-    jxr_container_t getContainer() const{
-        return m_container;
-    } 
-private:
-    jxr_container_t m_container;
-};
 
-class ImageKeeper
-{
-public:
-    ImageKeeper(jxr_image_t** images, int32_t len)
-    {
-        m_images.assign(images, images+len);
-    }
-    ~ImageKeeper()
-    {
-        for(auto ptr : m_images){
-            if (ptr){
-                jxr_image_t image = *ptr;
-                if(image){
-                    jxr_destroy(image);
-                }
-            }
-        }
-    }
-private:
-    std::vector<jxr_image_t*> m_images;
-};
-class MemoryKeeper
-{
-public:
-    MemoryKeeper(char*** buffers, int len){
-        m_buffers.assign(buffers, buffers+len);
-    }
-    MemoryKeeper(char** buffer){
-        m_buffers.push_back(buffer);
-    }
-    ~MemoryKeeper(){
-        for(auto ptr : m_buffers){
-            if (ptr){
-                void* buffer = *ptr;
-                if(buffer){
-                    free(buffer);
-                }
-            }
-        }
-    }
-private:
-    std::vector<char**> m_buffers;
-};
-
-void jpegxr_decompress(FILE* fd, FILE* output_file, uint8_t* buffer, uint32_t buffer_size)
+void jpegxr_decompress(byte_stream& bs, uint8_t* output_buffer, uint32_t buffer_size)
 {
     jxrflags jflags;
     ContainerKeeper container;
@@ -188,13 +98,13 @@ void jpegxr_decompress(FILE* fd, FILE* output_file, uint8_t* buffer, uint32_t bu
     const int padded_format = 1;
     std::vector<uint8_t> primary_buffer;
 
-    int rc = jxr_read_image_container(ifile, fd);
+    int rc = jxr_read_image_container(ifile, &bs);
     if (rc < 0) 
     {
         throw std::runtime_error("input image is not a jpegxr.");
     }
     unsigned long off = jxrc_image_offset(ifile, 0);
-    rc = fseek(fd, off, SEEK_SET);
+    rc = bs_seek(&bs, off, SEEK_SET);
     assert(rc >= 0);
     if(jxrc_alpha_offset(ifile, 0))
     {
@@ -244,16 +154,28 @@ void jpegxr_decompress(FILE* fd, FILE* output_file, uint8_t* buffer, uint32_t bu
 
     void *output_handle(nullptr);
     MemoryKeeper primary_keeper((char**)&output_handle);
-    //output_handle_primary = open_output_file(buffer, buffer_size, ifile, jflags.padded_format, 0);
-    output_handle = open_output_file_h(output_file, ifile, jflags.padded_format, 0);
+    output_handle = open_output_file_mem(output_buffer, buffer_size, ifile, jflags.padded_format, 0);
     /*Decode image */
     jxr_image_t image(nullptr), imageAlpha(nullptr);
     jxr_image_t* images[] = {&image, &imageAlpha};
     ImageKeeper image_keeper(images, sizeof(images)/sizeof(images[0]));
-    rc = decompress_image(fd, ifile, output_handle, &image, 0, &jflags); 
-    //SAFE_CLOSE(output_handle);
+    rc = decompress_image(&bs, ifile, output_handle, &image, 0, &jflags); 
     if(rc < 0)
     {
         throw std::runtime_error("Failed to decompress image");
     }
+}
+
+void jpegxr_decompress(uint8_t *input_buffer, uint32_t input_buffer_size, uint8_t* output_buffer, uint32_t buffer_size)
+{
+    byte_stream bs;
+    bs_init_mem(&bs, input_buffer, input_buffer_size, 1);
+    jpegxr_decompress(bs,  output_buffer, buffer_size);
+}
+
+void jpegxr_decompress(FILE* input_file, uint8_t* output_buffer, uint32_t buffer_size)
+{
+    byte_stream bs;
+    bs_init_file(&bs, input_file, 1);
+    jpegxr_decompress(bs,  output_buffer, buffer_size);
 }

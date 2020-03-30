@@ -38,6 +38,9 @@ set(SOURCE_FILES
    	${CMAKE_CURRENT_SOURCE_DIR}/codec/w_tile_spatial.c
    	${CMAKE_CURRENT_SOURCE_DIR}/codec/w_tile_spatial.h
    	${CMAKE_CURRENT_SOURCE_DIR}/codec/x_strip.c
+   	${CMAKE_CURRENT_SOURCE_DIR}/codec/bytestream.c
+   	${CMAKE_CURRENT_SOURCE_DIR}/codec/bytestream.h
+   	${CMAKE_CURRENT_SOURCE_DIR}/jxrcodec_priv.hpp
 )
 
 add_library(${LIBRARY_NAME} STATIC ${SOURCE_FILES})

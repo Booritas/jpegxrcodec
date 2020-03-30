@@ -80,8 +80,6 @@
 
 int jxrc_start_file(jxr_container_t cp, FILE*fd)
 {
-      assert(cp->fd == 0);
-
       /* initializations */
       cp->separate_alpha_image_plane = 0;
       cp->image_count_mark = 0;
@@ -89,13 +87,13 @@ int jxrc_start_file(jxr_container_t cp, FILE*fd)
       cp->alpha_offset_mark = 0;
       cp->alpha_band = 0;
 
-      cp->fd = fd;
-      cp->file_mark = ftell(cp->fd);
+      bs_init_file(&cp->data, fd, 1);
+      cp->file_mark = bs_tell(&cp->data);
 
       const unsigned char head_bytes[8] = {0x49, 0x49, 0xbc, 0x01,
 					   0x08, 0x00, 0x00, 0x00 };
 
-      fwrite(head_bytes, 1, 8, cp->fd);
+      bs_write(&cp->data, head_bytes, 8);
       return 0;
 }
 
@@ -557,7 +555,7 @@ static void emit_ifd(jxr_container_t cp)
     unsigned char scr[12];
     scr[0] = (num_ifd>>0) & 0xff;
     scr[1] = (num_ifd>>8) & 0xff;
-    fwrite(scr, 1, 2, cp->fd);
+    bs_write(&cp->data, scr,  2);
     for (idx = 0 ; idx < num_ifd ; idx += 1) {
         scr[0] = (ifd[idx].tag >> 0) & 0xff;
         scr[1] = (ifd[idx].tag >> 8) & 0xff;
@@ -614,17 +612,17 @@ static void emit_ifd(jxr_container_t cp)
                 assert(0);
                 break;
         }
-        fwrite(scr, 1, 12, cp->fd);
+        bs_write(&cp->data, scr, 12);
     }
-    cp->next_ifd_mark = ftell(cp->fd);
+    cp->next_ifd_mark = bs_tell(&cp->data);
     scr[0] = 0;
     scr[1] = 0;
     scr[2] = 0;
     scr[3] = 0;
 
-    fwrite(scr, 1, 4, cp->fd);
+    bs_write(&cp->data, scr, 4);
 
-    fwrite(buf, 1, num_buf, cp->fd);
+    bs_write(&cp->data, buf, num_buf);
 }
 
 int jxrc_begin_image_data(jxr_container_t cp)
@@ -635,35 +633,35 @@ int jxrc_begin_image_data(jxr_container_t cp)
 
 int jxrc_write_container_post(jxr_container_t cp)
 {
-      uint32_t mark = ftell(cp->fd);
+      uint32_t mark = bs_tell(&cp->data);
 
       assert(mark > cp->image_offset_mark);
       uint32_t count = mark - cp->image_offset_mark;
 
       DEBUG("CONTAINER: measured bitstream count=%u\n", count);
 
-      fseek(cp->fd, cp->image_count_mark, SEEK_SET);
+      bs_seek(&cp->data, cp->image_count_mark, SEEK_SET);
       unsigned char scr[4];
       scr[0] = (count >>  0) & 0xff;
       scr[1] = (count >>  8) & 0xff;
       scr[2] = (count >> 16) & 0xff;
       scr[3] = (count >> 24) & 0xff;
-      fwrite(scr, 1, 4, cp->fd);
+      bs_write(&cp->data, scr, 4);
 
       if(cp->separate_alpha_image_plane)
       {
-          fseek(cp->fd, cp->alpha_offset_mark, SEEK_SET);          
+          bs_seek(&cp->data, cp->alpha_offset_mark, SEEK_SET);          
           count  = (mark+1) & (~1);
           scr[0] = (count >>  0) & 0xff;
           scr[1] = (count >>  8) & 0xff;
           scr[2] = (count >> 16) & 0xff;
           scr[3] = (count >> 24) & 0xff;
-          fwrite(scr, 1, 4, cp->fd);
+          bs_write(&cp->data, scr, 4);
 
-	  fseek(cp->fd, mark, SEEK_SET);
+	  bs_seek(&cp->data, mark, SEEK_SET);
 	  // Make the mark even if it is odd by inserting a pad byte
 	  if (mark & 1) {
-	    fputc(0,cp->fd);
+	    bs_put_byte(&cp->data, 0);
 	    mark++;
 	  }
       }
@@ -673,20 +671,20 @@ int jxrc_write_container_post(jxr_container_t cp)
 
 int jxrc_write_container_post_alpha(jxr_container_t cp)
 {
-      uint32_t mark = ftell(cp->fd);
+      uint32_t mark = bs_tell(&cp->data);
       uint32_t count = mark - cp->alpha_begin_mark;
       DEBUG("CONTAINER: measured alpha count=%u\n", count);
       
       if(cp->separate_alpha_image_plane)
       {
           unsigned char scr[4];
-          fseek(cp->fd, cp->alpha_count_mark, SEEK_SET);          
+          bs_seek(&cp->data, cp->alpha_count_mark, SEEK_SET);          
           count = mark;
           scr[0] = (count >>  0) & 0xff;
           scr[1] = (count >>  8) & 0xff;
           scr[2] = (count >> 16) & 0xff;
           scr[3] = (count >> 24) & 0xff;
-          fwrite(scr, 1, 4, cp->fd);
+          bs_write(&cp->data, scr, 4);
       }   
       /*
       ** Why do we actually need all this??

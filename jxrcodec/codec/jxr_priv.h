@@ -75,16 +75,8 @@
 #pragma comment (user,"$Id: jxr_priv.h,v 1.13 2012-03-18 00:09:21 thor Exp $")
 #endif
 
-# include "jpegxr.h"
-
-#ifndef _MSC_VER
+#include "jpegxr.h"
 # include <stdint.h>
-#else
-/* MSVC (as of 2008) does not support C99 or the stdint.h header
-file. So include a private little header file here that does the
-minimal typedefs that we need. */
-# include "stdint_minimal.h"
-#endif
 
 /* define this to check if range of values exceeds signed 16-bit */
 #define VERIFY_16BIT
@@ -100,6 +92,8 @@ minimal typedefs that we need. */
 #define CHECK4(flag, a, b, c, d) CHECK3(flag, a, b, c); CHECK1(flag, d)
 #define CHECK5(flag, a, b, c, d, e) CHECK4(flag, a, b, c, d); CHECK1(flag, e)
 #define CHECK6(flag, a, b, c, d, e, f) CHECK5(flag, a, b, c, d, e); CHECK1(flag, f)
+
+#include "bytestream.h"
 
 struct macroblock_s{
     int*data;
@@ -135,12 +129,12 @@ struct cbp_model_s{
 ** thor: Moved here: read and write bitstreams.
 */
 
+
 struct rbitstream{
     unsigned char byte;
     int bits_avail;
-    FILE*fd;
+    struct byte_stream* data;
     size_t read_count;
-
     long mark_stream_position;
 };
 
@@ -449,7 +443,7 @@ extern void _jxr_send_mb_to_output(jxr_image_t image, int mx, int my, int*data);
 /* I/O functions. */
 
 /* Get the current *bit* position, for diagnostic use. */
-extern void _jxr_rbitstream_initialize(struct rbitstream*str, FILE*fd);
+extern void _jxr_rbitstream_initialize(struct rbitstream*str, struct byte_stream* bs);
 extern size_t _jxr_rbitstream_bitpos(struct rbitstream*str);
 
 extern void _jxr_rbitstream_syncbyte(struct rbitstream*str);
@@ -760,7 +754,7 @@ struct jxr_container{
   
   /* Members for managing output. */
   
-  FILE *fd; /* File to write to. */
+  struct byte_stream data; /* File to write to. */
   uint32_t file_mark;
   uint32_t next_ifd_mark;
   uint32_t image_count_mark;

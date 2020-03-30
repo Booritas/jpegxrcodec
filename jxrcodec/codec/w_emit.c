@@ -348,10 +348,10 @@ int jxr_write_image_bitstream(jxr_image_t image, FILE*fd)
         unsigned char window_params[5];
         if (image->window_extra_top || image->window_extra_right) {
             window_params[0] = 1;
-            window_params[1] = image->window_extra_top;
-            window_params[2] = image->window_extra_left;
-            window_params[3] = image->window_extra_bottom;
-            window_params[4] = image->window_extra_right;
+            window_params[1] = (unsigned char)image->window_extra_top;
+            window_params[2] = (unsigned char)image->window_extra_left;
+            window_params[3] = (unsigned char)image->window_extra_bottom;
+            window_params[4] = (unsigned char)image->window_extra_right;
         }
         else {
             window_params[4] = window_params[3] = window_params[2] = window_params[1] = window_params[0] = 0;
@@ -404,7 +404,9 @@ int jxr_write_image_bitstream(jxr_image_t image, FILE*fd)
 
         struct rbitstream strCodedTilesRead;
         FILE*fdCodedTilesRead = fopen("codedtiles.tmp", "rb");
-        _jxr_rbitstream_initialize(&strCodedTilesRead, fdCodedTilesRead);
+        struct byte_stream bs;
+        bs_init_file(&bs, fdCodedTilesRead, 1);
+        _jxr_rbitstream_initialize(&strCodedTilesRead, &bs);
 
         size_t idx;
         for (idx = 0; idx < strCodedTiles.write_count; idx++) {
@@ -805,7 +807,7 @@ static uint64_t w_PROFILE_LEVEL_INFO(jxr_image_t image, struct wbitstream*str, u
 
 static void w_TILE(jxr_image_t image, struct wbitstream*str)
 {
-    unsigned tile_idx = 0;
+    unsigned int tile_idx = 0;
 
     if (FREQUENCY_MODE_CODESTREAM_FLAG(image) == 0 /* SPATIALMODE */) {
 
@@ -845,7 +847,7 @@ static void w_TILE(jxr_image_t image, struct wbitstream*str)
     }
 
     if (INDEXTABLE_PRESENT_FLAG(image)) {
-        for (tile_idx = image->tile_index_table_length - 1 ; tile_idx > 0  ; tile_idx--) {
+        for (tile_idx = (unsigned int)image->tile_index_table_length - 1 ; tile_idx > 0  ; tile_idx--) {
             image->tile_index_table[tile_idx] = image->tile_index_table[tile_idx - 1];
         }
         image->tile_index_table[0] = 0;

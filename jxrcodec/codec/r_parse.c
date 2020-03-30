@@ -123,11 +123,11 @@ static int get_num_ch_blk(struct rbitstream*str);
 
 
 
-int jxr_read_image_bitstream(jxr_image_t image, FILE*fd)
+int jxr_read_image_bitstream(jxr_image_t image, struct byte_stream* bs)
 {
     int rc;
     struct rbitstream bits;
-    _jxr_rbitstream_initialize(&bits, fd);
+    _jxr_rbitstream_initialize(&bits, bs);
 
     /* Image header for the image overall */
     rc = r_image_header(image, &bits);
@@ -226,10 +226,10 @@ int jxr_read_image_bitstream(jxr_image_t image, FILE*fd)
 /*
 ** Added by thor April 2nd 2010: stripe by stripe decoding.
 */
-int jxr_init_read_stripe_bitstream(jxr_image_t image, FILE *fd)
+int jxr_init_read_stripe_bitstream(jxr_image_t image, struct byte_stream* bs)
 {
   int rc;
-  _jxr_rbitstream_initialize(&image->rbits, fd);
+  _jxr_rbitstream_initialize(&image->rbits, bs);
   
   /* Image header for the image overall */
   rc = r_image_header(image, &image->rbits);

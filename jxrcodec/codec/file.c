@@ -81,17 +81,17 @@
 #include <assert.h>
 #include "jpegxr.h"
 # include "jxr_priv.h"
-
-#ifndef _MSC_VER
+#include "bytestream.h"
 # include <stdint.h>
-#else
+
+#ifdef _MSC_VER
 /* MSVC (as of 2008) does not support C99 or the stdint.h header
 file. So include a private little header file here that does the
 minimal typedefs that we need. */
-# include "stdint_minimal.h"
 /* MSVC doesn't have strcasecmp. Use _stricmp instead */
 # define strcasecmp _stricmp
 #endif
+
 
 typedef struct context{
   const char *name; /* name of TIFF or PNM file */
@@ -105,8 +105,7 @@ typedef struct context{
   short sf; /* sample format, 1 (UINT), 2 (FixedPoint), 3 (float) or 4 (RGBE)*/
   int format; /* component format code 0..15 */
   unsigned swap : 1; /* byte swapping required ? */
-  FILE *file; /* input or output file pointer */
-  FILE *file2; /* output file pointer. Workaround to simulate late file opening */
+  struct byte_stream data;
   void *buf; /* source or destination data buffer */
   int my; /* last MB strip (of 16 lines) read, init to -1 */
   int nstrips; /* num of TIFF strips, 0 for PNM */
@@ -156,6 +155,7 @@ static void error(char *format,...)
     abort();
 }
 
+
 /* YCC/CMYKDIRECT format tests */
 
 static unsigned int isOutputYUV444(jxr_image_t image)
@@ -204,8 +204,9 @@ static unsigned int isOutputPremultiplied(context *con,jxr_image_t image)
 
 static void read_data(context *con, void *buf, int size, int count)
 {
-    size_t rc = fread(buf, size, count, con->file);
-    if (rc!=count)
+    int len = size*count;
+    int rc = bs_read(&con->data, buf, len);
+    if (rc!=len)
         error("premature EOF in input file %s", con->name);
 }
 
@@ -257,8 +258,8 @@ static inline uint32_t get_uint32(context *con)
 
 static void seek_file(context *con, long offset, int whence)
 {
-    int rc = fseek(con->file, offset, whence);
-    if (rc!=0)
+    int rc = bs_seek(&con->data, offset, whence);
+    if (rc==0)
         error("cannot seek to desired offset in input file %s", con->name);
 }
 
@@ -266,8 +267,9 @@ static void seek_file(context *con, long offset, int whence)
 
 static void write_data(context *con, const void *buf, int size, int count)
 {
-    size_t rc = fwrite(buf, size, count, con->file);
-    if (rc!=count)
+    int len = size*count;
+    size_t rc = bs_write(&con->data, buf, len);
+    if (rc!=len)
         error("unable to write to output file %s", con->name);
 }
 
@@ -394,8 +396,12 @@ static unsigned read_pnm_number(context *con)
 static void open_pnm_input_file(context *con)
 {
     int c, max, one=1;
+    if(bs_is_memory_stream(&con->data))
+    {
+        error("output memory stream is not supported for pnm files");
+    }
 
-    rewind(con->file);
+    bs_seek(&con->data, 0, SEEK_SET);
     c=get_uint8(con);
     if (c!='P')
         error("unexpected character 0x%02x (%c) at start of PNM file %s", c, c, con->name);
@@ -433,14 +439,15 @@ static void open_pnm_input_file(context *con)
 static void start_pnm_output_file(context *con)
 {
     int max, one=1; 
-    con->file = fopen(con->name, "wb");
-    con->isBgr = 0;
-    if (con->file==0)
+    FILE *file = fopen(con->name, "wb");
+    if (file==0)
         error("cannot create PNM output file %s",con->name);
+    bs_init_file(&con->data, file, 1);
+    con->isBgr = 0;
     max = (1<<con->bpi)-1;
     if (max<256) con->swap = 0;
     else con->swap = *(char*)&one==1;
-    fprintf(con->file, "P%c\n%d %d\n%d\n", con->ncomp==1?'5':'6', con->wid, con->hei, max);
+    fprintf(con->data.file, "P%c\n%d %d\n%d\n", con->ncomp==1?'5':'6', con->wid, con->hei, max);
 }
 
 /* TIFF File Header Operations: */
@@ -474,6 +481,11 @@ static void read_tif_ifd_entry(context *con, uint32_t ifdoff, uint16_t *tag, uin
 
 static void read_tif_data(context *con, uint16_t type, uint32_t count, int index, int nval, void *buf)
 {
+    if(bs_is_memory_stream(&con->data))
+    {
+        error("output memory stream is not supported for tiff files");
+    }
+
     int size=0;
 
     switch (type) {
@@ -487,7 +499,7 @@ static void read_tif_data(context *con, uint16_t type, uint32_t count, int index
 
     index *= size;
     size *= count;
-    uint32_t offset = ftell(con->file);
+    uint32_t offset = bs_tell(&con->data);
     if (size>4)
         read_uint32(con, &offset, 1);
     seek_file(con, offset+index, SEEK_SET);
@@ -529,13 +541,18 @@ static uint32_t get_tif_datum(context *con, uint32_t ifdoff, int index)
 
 static void open_tif_input_file(context *con)
 {
+    if(bs_is_memory_stream(&con->data))
+    {
+        error("output memory stream is not supported for tif files");
+    }
+
     int i, one=1;
     uint16_t magic, nentry, tag, type;
     uint32_t count, diroff;
 
     con->photometric = -1;
     
-    rewind(con->file);
+    bs_seek(&con->data, 0, SEEK_SET);
     read_uint16(con, &magic, 1);
     switch (magic) {
         case 0x4949 : con->swap = *(char*)&one!=1; break;
@@ -631,23 +648,28 @@ static void open_tif_input_file(context *con)
 
 static void open_rgbe_input_file(context *con)
 {
-  char buffer[256];
+    if(bs_is_memory_stream(&con->data))
+    {
+        error("output memory stream is not supported for rgbe files");
+    }
+
+    char buffer[256];
   
-  rewind(con->file);
-  fgets(buffer,255,con->file);
+    bs_seek(&con->data, 0, SEEK_SET);
+    fgets(buffer,255,con->data.file);
 
   if (buffer[0] != '#' || buffer[1] != '?')
     error("input file %s is not an RGBE file",con->name);
 
   do {
-    fgets(buffer,255,con->file);
+    fgets(buffer,255,con->data.file);
   } while(strcmp(buffer,"FORMAT=32-bit_rle_rgbe\n"));
 
-  fgets(buffer,255,con->file);
+  fgets(buffer,255,con->data.file);
   if (strcmp(buffer,"\n"))
     error("input file %s is not an RGBE file",con->name);
 
-  if (fscanf(con->file,"-Y %d +X %d\n",&con->hei,&con->wid) != 2)
+  if (fscanf(con->data.file,"-Y %d +X %d\n",&con->hei,&con->wid) != 2)
     error("input file %s is not an RGBE file",con->name);
   
   con->bpi         = 8;
@@ -716,27 +738,35 @@ unsigned int validate_rgbe_output(context *con)
 
 static void start_rgbe_output_file(context *con)
 { 
-  con->file = fopen(con->name, "wb");
-  if (con->file==0)
+    if(bs_is_memory_stream(&con->data))
+    {
+        error("output memory stream is not supported for rgbe files");
+    }
+    con->data.file = fopen(con->name, "wb");
+    if (con->data.file==0)
     error("cannot create rgbe output file %s", con->name);
-  con->swap = 0;
-  con->isBgr = 0; 
-  con->packBits  = 0;
-  
-  fprintf(con->file,"#?RGBE\n");
-  // gamma and exposure are not specified, hence do not write them.
-  fprintf(con->file,"FORMAT=32-bit_rle_rgbe\n\n");
-  fprintf(con->file,"-Y %d +X %d\n",con->hei,con->wid);
+    con->swap = 0;
+    con->isBgr = 0; 
+    con->packBits  = 0;
+
+    fprintf(con->data.file,"#?RGBE\n");
+    // gamma and exposure are not specified, hence do not write them.
+    fprintf(con->data.file,"FORMAT=32-bit_rle_rgbe\n\n");
+    fprintf(con->data.file,"-Y %d +X %d\n",con->hei,con->wid);
 }
 
 static void start_tif_output_file(context *con)
 {     
+    if(bs_is_memory_stream(&con->data))
+    {
+        error("output memory stream is not supported for tif files");
+    }
   int extra  = 0;
   int extrav = 0;
   int independent = 0; // independent planes
   
-  con->file = fopen(con->name, "wb");
-  if (con->file==0)
+  con->data.file = fopen(con->name, "wb");
+  if (con->data.file==0)
     error("cannot create TIFF output file %s", con->name);
   con->swap = 0;
   con->isBgr = 0; 
@@ -905,7 +935,7 @@ static void start_tif_output_file(context *con)
   // end of directory
 
   // bits per sample array
-  assert(ftell(con->file)==bitoff);
+  assert(ftell(con->data.file)==bitoff);
   if (con->ncomp>=3) {
     int i;
     if (con->format == 10 && con->bpi == 6 && con->ncomp == 3) {
@@ -922,7 +952,7 @@ static void start_tif_output_file(context *con)
   }
 
   // sample format array
-  assert(ftell(con->file)==fmtoff);
+  assert(ftell(con->data.file)==fmtoff);
   if (con->ncomp>=3) {
     int i;
     for (i=0; i<con->ncomp; i++)
@@ -932,14 +962,14 @@ static void start_tif_output_file(context *con)
   }
   
   // resolution array
-  assert(ftell(con->file)==resoff);
+  assert(ftell(con->data.file)==resoff);
   put_uint32(con,96);
   put_uint32(con,1);
   put_uint32(con,96);
   put_uint32(con,1);
 
   // ycc sample resolution and offset
-  assert(ftell(con->file)==yccoff);
+  assert(ftell(con->data.file)==yccoff);
   if (con->ycc_format) {
     int i;
     put_uint32(con,0);
@@ -957,7 +987,7 @@ static void start_tif_output_file(context *con)
   if (independent) {
     int i;
     // stripe offsets
-    assert(ftell(con->file) == offoff);
+    assert(ftell(con->data.file) == offoff);
     int planesize = con->hei * ((con->wid * con->bpi+7)/8);
     int chrwid    = (con->wid + xs - 1) / xs;
     int chrhei    = (con->hei + ys - 1) / ys;
@@ -977,7 +1007,7 @@ static void start_tif_output_file(context *con)
       }
     }
     //
-    assert(ftell(con->file) == stroff);
+    assert(ftell(con->data.file) == stroff);
     if (con->ycc_format) {
       put_uint32(con,planesize); // Y
       put_uint32(con,chrsiz);    // Cb
@@ -990,21 +1020,13 @@ static void start_tif_output_file(context *con)
       }
     }
   }
-  assert(ftell(con->file)==datoff);
+  assert(ftell(con->data.file)==datoff);
 }
 
 static void start_raw_output_file(context *con)
 {
-    if(con->file2)
-    {
-        con->file = con->file2;
-    }
-    else
-    {
-        con->file = fopen(con->name, "w+b");
-    }
-    if (con->file==0)
-        error("cannot create RAW output file %s", con->name);
+    bs_make_ready(&con->data);
+    bs_seek(&con->data, 0, SEEK_SET);
     con->swap = 0;
 }
 
@@ -1046,8 +1068,10 @@ void *open_input_file(const char *name, jxr_container_t c, const raw_info *raw_i
     con->is_separate_alpha = 0;
     con->alpha = 0;
 
-    con->file = fopen(name, "rb");
-    if (con->file==0)
+    con->data.file2 = 0;
+    con->data.buffer_begin = con->data.buffer_end = con->data.buffer_pos = NULL;
+    con->data.file = fopen(name, "rb");
+    if (con->data.file==0)
         error("cannot find input file %s", name);
 
     if (!raw_info_t->is_raw) {
@@ -1192,7 +1216,8 @@ void *open_output_file(const char *name,jxr_container_t c,int write_padding_chan
     context *con = (context*)malloc(sizeof(context));
     if (con==0)
         error("unable to allocate memory");
-    con->file = 0;
+    con->data.file = con->data.file2 = 0;
+    con->data.buffer_begin = con->data.buffer_end = con->data.buffer_pos = NULL;
     con->container = c;
     con->name = name;
     con->wid = 0;
@@ -1219,7 +1244,7 @@ void close_file(void *handle)
     if(handle == NULL)
         return;
     context *con = (context*)handle;
-    if (con->file) fclose(con->file);
+    if (con->data.file) fclose(con->data.file);
     if (con->buf) free(con->buf);
     free(con);    
 }
@@ -2359,7 +2384,7 @@ void write_file_YCC(jxr_image_t image, int mx, int my, int* data)
       break;
     }
     
-    if (con->file==0) {
+    if (bs_is_ready(&con->data)==0) {
       con->alpha = jxr_get_ALPHACHANNEL_FLAG(image);
       con->premultiplied = isOutputPremultiplied(con,image);
       con->left_pad = image->window_extra_left;
@@ -2633,44 +2658,44 @@ void write_file_YCC(jxr_image_t image, int mx, int my, int* data)
 	sizeUV = (con->wid >> ((con->ycc_format == 1 || con->ycc_format == 2) ? 1 : 0)) *
 	  (con->hei >> (con->ycc_format == 1 ? 1 : 0));
       }
-      fflush(conY->file);
-      fseek(conY->file, 0, 0);  
+      fflush(conY->data.file);
+      fseek(conY->data.file, 0, 0);  
       long ii;
       for(ii = 0; ii < sizeY; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conY->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conY->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
-      fflush(conU->file);
-      fseek(conU->file, 0, 0);        
+      fflush(conU->data.file);
+      fseek(conU->data.file, 0, 0);        
       for( ii = 0; ii < sizeUV; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conU->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conU->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
-      fflush(conV->file);
-      fseek(conV->file, 0, 0);
+      fflush(conV->data.file);
+      fseek(conV->data.file, 0, 0);
       for( ii = 0; ii < sizeUV; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conV->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conV->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
 
       if(con->alpha) {
 	size_t ii;
-	fflush(conA->file);
-	fseek(conA->file, 0, 0);            
+	fflush(conA->data.file);
+	fseek(conA->data.file, 0, 0);            
 	for( ii = 0; ii < sizeY && con->alpha; ii++) {
 	  uint8_t val;
-	  fread(&val, 1, 1, conA->file);
-	  fwrite(&val, 1, 1, con->file);
+	  fread(&val, 1, 1, conA->data.file);
+	  fwrite(&val, 1, 1, con->data.file);
 	}
       }
-      fclose(conY->file);
-      fclose(conU->file);
-      fclose(conV->file);
+      fclose(conY->data.file);
+      fclose(conU->data.file);
+      fclose(conV->data.file);
       if(con->alpha)
-	fclose(conA->file);
+	fclose(conA->data.file);
       
       free(conY->buf);
       free(conU->buf);
@@ -2708,7 +2733,7 @@ void write_file_CMYK(jxr_image_t image, int mx, int my, int* data)
     static context *conK = NULL;
     static context *conA = NULL;
     context *con = (context*) jxr_get_user_data(image);    
-    if (con->file==0)
+    if (bs_is_ready(&con->data)==0)
     {
         con->alpha = jxr_get_ALPHACHANNEL_FLAG(image);
 	con->premultiplied = isOutputPremultiplied(con,image);
@@ -2965,44 +2990,44 @@ void write_file_CMYK(jxr_image_t image, int mx, int my, int* data)
 	size   = con->wid * con->hei;
       }
       long ii;
-      fseek(conC->file, 0, 0); 
+      fseek(conC->data.file, 0, 0); 
       for( ii = 0; ii < size; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conC->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conC->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
-      fseek(conM->file, 0, 0);        
+      fseek(conM->data.file, 0, 0);        
       for( ii = 0; ii < size; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conM->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conM->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
-      fseek(conY->file, 0, 0);
+      fseek(conY->data.file, 0, 0);
       for( ii = 0; ii < size; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conY->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conY->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
-      fseek(conK->file, 0, 0);
+      fseek(conK->data.file, 0, 0);
       for( ii = 0; ii < size; ii++) {
 	uint8_t val;
-	fread(&val, 1, 1, conK->file);
-	fwrite(&val, 1, 1, con->file);
+	fread(&val, 1, 1, conK->data.file);
+	fwrite(&val, 1, 1, con->data.file);
       }
       if(con->alpha) {
-	fseek(conA->file, 0, 0);            
+	fseek(conA->data.file, 0, 0);            
 	for( ii = 0; ii < size && con->alpha; ii++) {
 	  uint8_t val;
-	  fread(&val, 1, 1, conA->file);
-	  fwrite(&val, 1, 1, con->file);
+	  fread(&val, 1, 1, conA->data.file);
+	  fwrite(&val, 1, 1, con->data.file);
 	}
       }
-      fclose(conC->file);
-      fclose(conM->file);
-      fclose(conY->file);
-      fclose(conK->file);
+      fclose(conC->data.file);
+      fclose(conM->data.file);
+      fclose(conY->data.file);
+      fclose(conK->data.file);
       if(con->alpha)
-	fclose(conA->file);
+	fclose(conA->data.file);
       
       free(conC->buf);
       free(conM->buf);
@@ -3031,7 +3056,7 @@ void write_file(jxr_image_t image, int mx, int my, int*data)
 {
     context *con = (context*) jxr_get_user_data(image);
     
-    if (con->file == 0 && jxrc_get_CONTAINER_CHANNELS(con->container) > 1) {
+    if (bs_is_ready(&con->data) == 0 && jxrc_get_CONTAINER_CHANNELS(con->container) > 1) {
       if (isOutputCMYKDirect(image)) {
 	con->cmyk_format = 1;
       } else if (isOutputYUV444(image)) {
@@ -3055,7 +3080,7 @@ void write_file(jxr_image_t image, int mx, int my, int*data)
       return;
     }
 
-    if (con->file==0) {
+    if (bs_is_ready(&con->data)==0) {
       int comps    = jxr_get_IMAGE_CHANNELS(image); /* components present in the codestream, might be one for YOnly */
       int channels = jxrc_get_CONTAINER_CHANNELS(con->container);
 
@@ -3380,7 +3405,7 @@ void write_file(jxr_image_t image, int mx, int my, int*data)
 void concatenate_primary_alpha(jxr_image_t image, FILE *fpPrimary, FILE *fpAlpha)
 {
     context *con = (context*) jxr_get_user_data(image);
-    if (con->file==0)
+    if (con->data.file==0)
     {
         set_pad_bytes(con);
         /* Add 1 to number of channels for alpha */
@@ -3408,7 +3433,7 @@ void concatenate_primary_alpha(jxr_image_t image, FILE *fpPrimary, FILE *fpAlpha
     {
         uint8_t val;
         fread(&val, 1, 1, fpPrimary);
-        fwrite(&val, 1, 1, con->file);
+        fwrite(&val, 1, 1, con->data.file);
     }
     fseek(fpAlpha, 0, SEEK_END);
     size = ftell(fpAlpha);
@@ -3417,7 +3442,7 @@ void concatenate_primary_alpha(jxr_image_t image, FILE *fpPrimary, FILE *fpAlpha
     {
         uint8_t val;
         fread(&val, 1, 1, fpAlpha);
-        fwrite(&val, 1, 1, con->file);
+        fwrite(&val, 1, 1, con->data.file);
     } 
 }
 
@@ -3433,7 +3458,7 @@ void write_file_combine_primary_alpha(jxr_image_t image, FILE *fpPrimary, FILE *
       return;
     }
 
-    if (con->file==0) {
+    if (con->data.file==0) {
       set_pad_bytes(con);
       /* Add 1 to number of channels for alpha */
       con->alpha = 1;        
@@ -3697,8 +3722,34 @@ void *open_output_file_h(FILE* file, jxr_container_t c,int write_padding_channel
     context *con = (context*)malloc(sizeof(context));
     if (con==0)
         error("unable to allocate memory");
-    con->file = NULL;
-    con->file2 = file;
+    bs_init_file(&con->data, file, 0);
+    con->container = c;
+    con->name = OUTPUT_MEM_NAME;
+    con->wid = 0;
+    con->hei = 0;
+    con->ncomp = 0;
+    con->bpi = 0;
+    con->format = 0;
+    con->swap = 0;
+    con->buf = 0;
+    con->packBits = 0;
+    con->ycc_format = 0;
+    con->cmyk_format = 0;
+    con->separate = 0;
+    con->padBytes = 0;
+    con->padded_format = write_padding_channel; 
+    con->premultiplied = 0;
+    con->is_separate_alpha = is_separate_alpha;
+
+    return con;
+}
+
+void *open_output_file_mem(uint8_t* buffer, int32_t buffer_size, jxr_container_t c,int write_padding_channel,int is_separate_alpha)
+{
+    context *con = (context*)malloc(sizeof(context));
+    if (con==0)
+        error("unable to allocate memory");
+    bs_init_mem(&con->data, buffer, buffer_size, 0);
     con->container = c;
     con->name = OUTPUT_MEM_NAME;
     con->wid = 0;

@@ -78,7 +78,7 @@
 #endif
 
 # include <stdio.h>
-
+# include "bytestream.h"
 //#ifdef _MSC_VER
 //# ifdef JXR_DLL_EXPORTS
 //# define JXR_EXTERN extern "C" __declspec(dllexport)
@@ -86,7 +86,7 @@
 //# define JXR_EXTERN extern "C" __declspec(dllimport)
 //# endif
 //#else
-# ifdef _cplusplus
+# ifdef __cplusplus
 # define JXR_EXTERN extern "C"
 # else
 # define JXR_EXTERN extern
@@ -209,7 +209,7 @@ typedef enum JXRC_GUID_e{
 * NOTE: This call automatically detects an ISO based box format
 * and then branches off to the call below.
 */
-JXR_EXTERN int jxr_read_image_container(jxr_container_t c, FILE*fd);
+JXR_EXTERN int jxr_read_image_container(jxr_container_t c, struct byte_stream* str);
 
 /*
  * Read an ISO boxed-base format. Usually, no need to care about this
@@ -217,7 +217,7 @@ JXR_EXTERN int jxr_read_image_container(jxr_container_t c, FILE*fd);
  * However, if you want to call it yourself, it expects that the JP2
  * signature box is already parsed off.
  */
-JXR_EXTERN int jxr_read_image_container_boxed(jxr_container_t c, FILE*fd);
+JXR_EXTERN int jxr_read_image_container_boxed(jxr_container_t c, struct byte_stream* bs);
 
 /*
 * jxr_c_image_count returns the number of images in this
@@ -818,12 +818,12 @@ JXR_EXTERN void jxr_set_block_output(jxr_image_t image, block_fun_t fun);
 * The magic number is wrong, implying that it is not an JPEG XR
 * bitstream.
 */
-JXR_EXTERN int jxr_read_image_bitstream(jxr_image_t image, FILE*fd);
+JXR_EXTERN int jxr_read_image_bitstream(jxr_image_t image, struct byte_stream* bs);
 
 /*
 ** thor: Added April 2nd 2010: Initialize for stripe by stripe reading.
 */
-JXR_EXTERN int jxr_init_read_stripe_bitstream(jxr_image_t image, FILE *fd);
+JXR_EXTERN int jxr_init_read_stripe_bitstream(jxr_image_t image, struct byte_stream* bs);
 JXR_EXTERN int jxr_read_stripe_bitstream(jxr_image_t image);
 
 /*

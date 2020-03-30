@@ -77,6 +77,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include "bytestream.h"
 
 /*
 ** Generate a box-ID from the four-character identifier
@@ -93,7 +94,7 @@ static uint32_t read_ULONG(jxr_container_t c)
 {
   unsigned char buffer[4];
 
-  if (fread(buffer,1,sizeof(buffer),c->fd) != sizeof(buffer))
+  if (bs_read(&(c->data), buffer, sizeof(buffer)) != sizeof(buffer))
     return 0;
 
   return ((buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | (buffer[3] << 0));
@@ -144,12 +145,12 @@ static uint32_t read_box(jxr_container_t c,unsigned char *buffer,size_t *bufsize
   }
   *bufsize = size;
 
-  if (fread(buffer,1,size - 8,c->fd) != size - 8) {
+  if (bs_read(&c->data, buffer, size - 8) != size - 8) {
     return 0;
   }
 
   if (seek > 0) {
-    if (fseek(c->fd,seek,SEEK_CUR) != 0)
+    if (bs_seek(&c->data,seek,SEEK_CUR) != 0)
       return 0;
   }
 
@@ -464,7 +465,7 @@ static int parse_jp2h(jxr_container_t c,size_t boxsize)
       if (have_res)
 	return JXR_EC_BADFORMAT;
       have_res = 1;
-      if (fseek(c->fd,size,SEEK_CUR) != 0)
+      if (bs_seek(&c->data,size,SEEK_CUR) != 0)
 	return JXR_EC_IO;
     }
     /* All other boxes are ignored. */
@@ -660,7 +661,7 @@ static int parse_jplh(jxr_container_t c,size_t boxsize)
       if (have_res)
 	return JXR_EC_BADFORMAT;
       have_res = 1;
-      if (fseek(c->fd,size,SEEK_CUR) != 0)
+      if (bs_seek(&c->data,size,SEEK_CUR) != 0)
 	return JXR_EC_IO;
     }
     /* All other boxes are ignored. */
@@ -672,7 +673,7 @@ static int parse_jplh(jxr_container_t c,size_t boxsize)
   return 0;
 }
 
-int jxr_read_image_container_boxed(jxr_container_t c, FILE*fd)
+int jxr_read_image_container_boxed(jxr_container_t c, struct byte_stream* bs)
 {
   unsigned char buffer[256];
   size_t size;
@@ -682,13 +683,13 @@ int jxr_read_image_container_boxed(jxr_container_t c, FILE*fd)
   int have_jp2h = 0;
   int have_jplh = 0;
 
-  c->fd = fd;
+  bs_copy(&c->data, bs);
   c->color = -1; /* Still unknown */
 
   do {
     size = sizeof(buffer);
     type = read_box(c,buffer,&size);
-    if (size == 0 && !feof(c->fd))
+    if (size == 0 && !bs_feof(&c->data))
       return JXR_EC_IO;
     if (type == MAKE_ID('f','t','y','p')) {
       /* File type box */
@@ -728,14 +729,14 @@ int jxr_read_image_container_boxed(jxr_container_t c, FILE*fd)
 	  /* More than two are not supported. */
 	  return JXR_EC_FEATURE_NOT_IMPLEMENTED; /* layer composition not supported here, only one layer */
 	}
-	c->alpha_offset = ftell(c->fd);
+	c->alpha_offset = bs_tell(&c->data);
 	c->alpha_size   = size;
       } else {
-	c->image_offset = ftell(c->fd);
+	c->image_offset = bs_tell(&c->data);
 	c->image_size   = size;
       }
       /* Seek over it. */
-      if (fseek(c->fd,size,SEEK_CUR) != 0)
+      if (bs_seek(&c->data,size,SEEK_CUR) == 0)
 	return JXR_EC_IO;
       c->image_count++;
     } else if (type == MAKE_ID('u','i','n','f') || /* uuid info box */
@@ -743,10 +744,10 @@ int jxr_read_image_container_boxed(jxr_container_t c, FILE*fd)
 	       type == MAKE_ID('c','o','m','p') || /* composition box */
 	       type == MAKE_ID('d','r','e','p')) { /* desired reproduction box */
       /* Super boxes we currently don't need - seek over them */
-      if (fseek(c->fd,size,SEEK_CUR) != 0)
+      if (bs_seek(&c->data,size,SEEK_CUR) == 0)
 	return JXR_EC_IO;
     }
-  } while(!feof(c->fd));
+  } while(!bs_feof(&c->data));
 
   /*
   ** check whether there are as many channels as we have components. If not

@@ -287,7 +287,9 @@ void _jxr_w_TILE_HP_FLEX(jxr_image_t image, struct wbitstream*str,
     if (bands_present == 0 /* ALL */) {
         struct rbitstream strFPRead;
         FILE*fdFPRead = fopen("fp.tmp", "rb");
-        _jxr_rbitstream_initialize(&strFPRead, fdFPRead);
+        struct byte_stream bs;
+        bs_init_file(&bs, fdFPRead, 1);
+        _jxr_rbitstream_initialize(&strFPRead, &bs);
 
         size_t idx;
         for (idx = 0; idx < strFP.write_count; idx++) {
