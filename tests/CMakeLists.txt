@@ -11,6 +11,7 @@ set_target_properties(gmock_main PROPERTIES FOLDER extern)
 
 set(TEST_SOURCES 
    test_jxrcodec.cpp
+   test_byte_stream.cpp
 )
 
 add_executable(${TEST_NAME} ${TEST_SOURCES})
