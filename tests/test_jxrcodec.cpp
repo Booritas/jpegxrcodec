@@ -107,6 +107,11 @@ TEST(jxrcodec, decodeBufferJxr2)
     testJxrMemDecoder("test.jxr", "test.raw");
 }
 
+TEST(jxrcodec, decodeBufferJxr16)
+{
+    testJxrMemDecoder("tile16.jxr", "tile16.raw");
+}
+
 TEST(jxrcodec, decodeBufferJxrTissue)
 {
     testJxrMemDecoder("tissue.jxr", "tissue.raw");
@@ -123,8 +128,25 @@ TEST(jxrcodec, imageInfoMem)
     EXPECT_EQ(info.width, 550);
     EXPECT_EQ(info.height, 345);
     EXPECT_EQ(info.channels, 3);
-    EXPECT_FALSE(info.bit_mask);
+    EXPECT_EQ(info.sample_type, jpegxr_sample_type::Uint);
     EXPECT_EQ(info.sample_size, 1);
+    int buffer_size = info.height*info.width*info.channels*info.sample_size;
+    EXPECT_EQ(info.raster_buffer_size, buffer_size);
+}
+
+TEST(jxrcodec, imageInfoMem16)
+{
+    std::string imagePath = getTestImagePath("tile16.jxr");
+    std::ifstream srcFile(imagePath.c_str(), std::ios::binary);
+    std::vector<unsigned char> src((std::istreambuf_iterator<char>(srcFile)), std::istreambuf_iterator<char>());
+    uint32_t width(0), height(0);
+    jpegxr_image_info info;
+    jpegxr_get_image_info(src.data(), (uint32_t)src.size(), info);
+    EXPECT_EQ(info.width, 61);
+    EXPECT_EQ(info.height, 308);
+    EXPECT_EQ(info.channels, 3);
+    EXPECT_EQ(info.sample_type, jpegxr_sample_type::Uint);
+    EXPECT_EQ(info.sample_size, 2);
     int buffer_size = info.height*info.width*info.channels*info.sample_size;
     EXPECT_EQ(info.raster_buffer_size, buffer_size);
 }
@@ -140,7 +162,7 @@ TEST(jxrcodec, imageInfoFile)
     EXPECT_EQ(info.width, 550);
     EXPECT_EQ(info.height, 345);
     EXPECT_EQ(info.channels, 3);
-    EXPECT_FALSE(info.bit_mask);
+    EXPECT_EQ(info.sample_type, jpegxr_sample_type::Uint);
     EXPECT_EQ(info.sample_size, 1);
     int buffer_size = info.height*info.width*info.channels*info.sample_size;
     EXPECT_EQ(info.raster_buffer_size, buffer_size);

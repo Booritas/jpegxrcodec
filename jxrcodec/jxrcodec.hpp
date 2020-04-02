@@ -3,6 +3,15 @@
 #include <cstdio>
 #include <vector>
 
+enum class jpegxr_sample_type
+{
+    Unknown,
+    Bit,
+    Uint,
+    Int,
+    Float
+};
+
 struct jpegxr_image_info
 {
     uint32_t width;
@@ -10,7 +19,7 @@ struct jpegxr_image_info
     uint32_t channels;
     uint32_t sample_size;
     uint32_t raster_buffer_size;
-    bool bit_mask;
+    jpegxr_sample_type sample_type;
 };
 
 void jpegxr_decompress(FILE* input_file, uint8_t* buffer, uint32_t buffer_size);

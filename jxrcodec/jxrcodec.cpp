@@ -211,7 +211,6 @@ void jpegxr_get_image_info(byte_stream* bs,  jpegxr_image_info& image_info)
     int channels  = img->num_channels;
     if (img->alpha)
         channels += 1;
-    bool bit_mask = false;
     const int bit_depth = SOURCE_BITDEPTH(img);
     switch (bit_depth)
     {
@@ -233,7 +232,6 @@ void jpegxr_get_image_info(byte_stream* bs,  jpegxr_image_info& image_info)
         case 0: /* BD1WHITE1 */
         case 15: /* BD1BLACK1 */
             image_info.raster_buffer_size = ((height + 7) >> 3) * ((width + 7) >> 3) * 8;
-            bit_mask = true;
             break;
         case 8: /* BD5 */
         case 10: /* BD565 */
@@ -257,13 +255,41 @@ void jpegxr_get_image_info(byte_stream* bs,  jpegxr_image_info& image_info)
             break;
     }
 
+    jpegxr_sample_type sample_type = jpegxr_sample_type::Unknown;
+
+    switch (bit_depth)
+    {
+        case 1: /* BD8 */
+        case 2: /* BD16 */
+        case 8: /* BD5 */
+        case 10: /* BD565 */
+        case 9: /* BD10 */
+            sample_type = jpegxr_sample_type::Uint;
+            break;
+        case 6: /* BD32S */
+        case 3: /* BD16S */
+            sample_type = jpegxr_sample_type::Int;
+            break;
+        case 7: /* BD32F */
+        case 4: /* BD16F */
+            sample_type = jpegxr_sample_type::Float;
+            break;
+        case 0: /* BD1WHITE1 */
+        case 15: /* BD1BLACK1 */
+            sample_type = jpegxr_sample_type::Bit;
+            break;
+        default: /* RESERVED */
+            throw std::runtime_error("Not supported image format");
+            break;
+    }
+
     jxr_destroy(img);
    
     image_info.height = height;
     image_info.width = width;
     image_info.channels = channels;
     image_info.sample_size = sample_size;
-    image_info.bit_mask = bit_mask;
+    image_info.sample_type = sample_type;
     
 }
 
