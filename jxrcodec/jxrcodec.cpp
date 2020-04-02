@@ -13,6 +13,7 @@ extern "C"
 #include "codec/file.h"
 extern int r_image_header(jxr_image_t image, struct rbitstream*str);
 extern struct jxr_image* __make_jxr(void);
+extern int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha);
 }
 
 int decompress_image(byte_stream* bs, jxr_container_t container, void *output_handle, jxr_image_t *pImage, 
@@ -184,7 +185,7 @@ void jpegxr_decompress(FILE* input_file, uint8_t* output_buffer, uint32_t buffer
     jpegxr_decompress(bs,  output_buffer, buffer_size);
 }
 
-void jpegxr_get_image_size(byte_stream* bs, uint32_t& width, uint32_t& height)
+void jpegxr_get_image_info(byte_stream* bs,  jpegxr_image_info& image_info)
 {
     bs_seek(bs, 0, SEEK_SET);
     ContainerKeeper container;
@@ -202,23 +203,108 @@ void jpegxr_get_image_size(byte_stream* bs, uint32_t& width, uint32_t& height)
     stream.read_count = 0;
     jxr_image* img = __make_jxr();
     r_image_header(img, &stream);
-    width = img->width1 + 1;
-    height = img->height1 + 1;
+    rc = r_image_plane_header(img, &stream, 0);
+    int width = img->width1 + 1;
+    int height = img->height1 + 1;
+
+    int sample_size = 0;
+    int channels  = img->num_channels;
+    if (img->alpha)
+        channels += 1;
+    const int bit_depth = SOURCE_BITDEPTH(img);
+    switch (bit_depth)
+    {
+        case 1: /* BD8 */
+            sample_size = 1;
+            image_info.raster_buffer_size = channels * height * width;
+            break;
+        case 2: /* BD16 */
+        case 3: /* BD16S */
+        case 4: /* BD16F */
+            sample_size = 2;
+            image_info.raster_buffer_size = 2 * channels * height * width;
+            break;
+        case 6: /* BD32S */
+        case 7: /* BD32F */
+            sample_size = 4;
+            image_info.raster_buffer_size = 4 * channels * height * width;
+            break;
+        case 0: /* BD1WHITE1 */
+        case 15: /* BD1BLACK1 */
+            image_info.raster_buffer_size = ((height + 7) >> 3) * ((width + 7) >> 3) * 8;
+            break;
+        case 8: /* BD5 */
+        case 10: /* BD565 */
+            sample_size = 2;
+            image_info.raster_buffer_size = 2 * height * width;
+            break;
+        case 9: /* BD10 */
+            if (img->output_clr_fmt == JXR_OCF_RGB)
+            {
+                sample_size = 2;
+                image_info.raster_buffer_size = 4 * height * width;
+            }
+            else
+            {
+                sample_size = 2;
+                image_info.raster_buffer_size = 2 * channels * height * width;
+            }
+            break;
+        default: /* RESERVED */
+            throw std::runtime_error("Not supported image format");
+            break;
+    }
+
+    jpegxr_sample_type sample_type = jpegxr_sample_type::Unknown;
+
+    switch (bit_depth)
+    {
+        case 1: /* BD8 */
+        case 2: /* BD16 */
+        case 8: /* BD5 */
+        case 10: /* BD565 */
+        case 9: /* BD10 */
+            sample_type = jpegxr_sample_type::Uint;
+            break;
+        case 6: /* BD32S */
+        case 3: /* BD16S */
+            sample_type = jpegxr_sample_type::Int;
+            break;
+        case 7: /* BD32F */
+        case 4: /* BD16F */
+            sample_type = jpegxr_sample_type::Float;
+            break;
+        case 0: /* BD1WHITE1 */
+        case 15: /* BD1BLACK1 */
+            sample_type = jpegxr_sample_type::Bit;
+            break;
+        default: /* RESERVED */
+            throw std::runtime_error("Not supported image format");
+            break;
+    }
+
     jxr_destroy(img);
+   
+    image_info.height = height;
+    image_info.width = width;
+    image_info.channels = channels;
+    image_info.sample_size = sample_size;
+    image_info.sample_type = sample_type;
+    
 }
 
-void jpegxr_get_image_size(uint8_t* input_buffer, uint32_t input_buffer_size, uint32_t& width, uint32_t& height)
+void jpegxr_get_image_info(uint8_t* input_buffer, uint32_t input_buffer_size, jpegxr_image_info& image_info)
 {
     byte_stream bs;
     bs_init_mem(&bs, input_buffer, input_buffer_size, 1);
-    jpegxr_get_image_size(&bs, width, height);
+    jpegxr_get_image_info(&bs, image_info);
 }
 
-void jpegxr_get_image_size(FILE* input_file, uint32_t& width, uint32_t& height)
+void jpegxr_get_image_info(FILE* input_file,  jpegxr_image_info& image_info)
 {
     byte_stream bs;
     bs_init_file(&bs, input_file, 1);
     bs_seek(&bs, 0, SEEK_SET);
-    jpegxr_get_image_size(&bs, width, height);
+    jpegxr_get_image_info(&bs, image_info);
     bs_seek(&bs, 0, SEEK_SET);
 }
