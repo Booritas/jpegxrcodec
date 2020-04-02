@@ -91,7 +91,7 @@ static void clear_vlc_tables(jxr_image_t image)
     }
 }
 
-static struct jxr_image* __make_jxr(void)
+struct jxr_image* __make_jxr(void)
 {
     struct jxr_image*image = (struct jxr_image*) calloc(1, sizeof(struct jxr_image));
     image->user_flags = 0;

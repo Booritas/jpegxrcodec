@@ -78,7 +78,7 @@
 # include <memory.h>
 # include <assert.h>
 
-static int r_image_header(jxr_image_t image, struct rbitstream*str);
+int r_image_header(jxr_image_t image, struct rbitstream*str);
 static int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha);
 static int r_INDEX_TABLE(jxr_image_t image, struct rbitstream*str);
 static int64_t r_PROFILE_LEVEL_INFO(jxr_image_t image, struct rbitstream*str);
@@ -342,7 +342,7 @@ static const char*bitdepth_names[16] = {
 
 #endif
 
-static int r_image_header(jxr_image_t image, struct rbitstream*str)
+int r_image_header(jxr_image_t image, struct rbitstream*str)
 {
     const char GDI_SIG[] = "WMPHOTO\0";
     unsigned idx;

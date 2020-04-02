@@ -11,6 +11,8 @@
 extern "C"
 {
 #include "codec/file.h"
+extern int r_image_header(jxr_image_t image, struct rbitstream*str);
+extern struct jxr_image* __make_jxr(void);
 }
 
 int decompress_image(byte_stream* bs, jxr_container_t container, void *output_handle, jxr_image_t *pImage, 
@@ -178,5 +180,45 @@ void jpegxr_decompress(FILE* input_file, uint8_t* output_buffer, uint32_t buffer
 {
     byte_stream bs;
     bs_init_file(&bs, input_file, 1);
+    bs_seek(&bs, 0, SEEK_SET);
     jpegxr_decompress(bs,  output_buffer, buffer_size);
+}
+
+void jpegxr_get_image_size(byte_stream* bs, uint32_t& width, uint32_t& height)
+{
+    bs_seek(bs, 0, SEEK_SET);
+    ContainerKeeper container;
+    jxr_container_t ifile = container.getContainer();
+    int rc = jxr_read_image_container(ifile, bs);
+    if (rc < 0) 
+    {
+        throw std::runtime_error("input image is not a jpegxr.");
+    }
+    unsigned long off = jxrc_image_offset(ifile, 0);
+    rc = bs_seek(bs, off, SEEK_SET);
+    rbitstream stream;
+    stream.data = bs;
+    stream.bits_avail = 0;
+    stream.read_count = 0;
+    jxr_image* img = __make_jxr();
+    r_image_header(img, &stream);
+    width = img->width1 + 1;
+    height = img->height1 + 1;
+    jxr_destroy(img);
+}
+
+void jpegxr_get_image_size(uint8_t* input_buffer, uint32_t input_buffer_size, uint32_t& width, uint32_t& height)
+{
+    byte_stream bs;
+    bs_init_mem(&bs, input_buffer, input_buffer_size, 1);
+    jpegxr_get_image_size(&bs, width, height);
+}
+
+void jpegxr_get_image_size(FILE* input_file, uint32_t& width, uint32_t& height)
+{
+    byte_stream bs;
+    bs_init_file(&bs, input_file, 1);
+    bs_seek(&bs, 0, SEEK_SET);
+    jpegxr_get_image_size(&bs, width, height);
+    bs_seek(&bs, 0, SEEK_SET);
 }
