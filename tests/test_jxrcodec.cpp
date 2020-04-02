@@ -26,9 +26,9 @@ void testJxrFileDecoder(const std::string& jxrImageName, const std::string& rawI
     ASSERT_TRUE(fd!=nullptr);
 
     uint32_t imageWidth(0), imageHeight(0), imageChannels(3);
-    jpegxr_get_image_size(fd, imageWidth, imageHeight);
-    const int imageSize = imageWidth*imageHeight*imageChannels;
-    std::vector<uint8_t> raster(imageSize);
+    jpegxr_image_info info;
+    jpegxr_get_image_info(fd, info);
+    std::vector<uint8_t> raster(info.raster_buffer_size);
 
     jpegxr_decompress(fd, raster.data(), (uint32_t)raster.size());
     fclose(fd);
@@ -59,10 +59,9 @@ void testJxrMemDecoder(const std::string& jxrImageName, const std::string& rawIm
     std::vector<unsigned char> src((std::istreambuf_iterator<char>(srcFile)), std::istreambuf_iterator<char>());
     uint32_t imageWidth(0), imageHeight(0), imageChannels(3);
 
-    jpegxr_get_image_size(src.data(), src.size(), imageWidth, imageHeight);
-
-    const int imageSize = imageWidth*imageHeight*imageChannels;
-    std::vector<uint8_t> raster(imageSize);
+    jpegxr_image_info info;
+    jpegxr_get_image_info(src.data(), src.size(), info);
+    std::vector<uint8_t> raster(info.raster_buffer_size);
 
     jpegxr_decompress(src.data(), (uint32_t)src.size(), raster.data(), (uint32_t)raster.size());
 
@@ -73,15 +72,18 @@ void testJxrMemDecoder(const std::string& jxrImageName, const std::string& rawIm
     ASSERT_EQ(memcmp(raster.data(), trg.data(), trg.size()), 0);
 }
 
-void createRaw(const std::string& jxrImageName, const std::string& rawImageName, int imageWidth, int imageHeight, int imageChannels)
+void createRaw(const std::string& jxrImageName, const std::string& rawImageName)
 {
-    const int imageSize = imageWidth*imageHeight*imageChannels;
-    std::vector<uint8_t> raster(imageSize);
     std::string imagePath = getTestImagePath(jxrImageName);
     std::string rawImagePath = getTestImagePath(rawImageName);
 
     std::ifstream srcFile(imagePath.c_str(), std::ios::binary);
     std::vector<unsigned char> src((std::istreambuf_iterator<char>(srcFile)), std::istreambuf_iterator<char>());
+
+    jpegxr_image_info info;
+    jpegxr_get_image_info(src.data(), (uint32_t)src.size(), info);
+    const int imageSize = info.raster_buffer_size;
+    std::vector<uint8_t> raster(imageSize);
 
     jpegxr_decompress(src.data(), (uint32_t)src.size(), raster.data(), (uint32_t)raster.size());
 
@@ -110,24 +112,41 @@ TEST(jxrcodec, decodeBufferJxrTissue)
     testJxrMemDecoder("tissue.jxr", "tissue.raw");
 }
 
-TEST(jxrcodec, imageSizeMem)
+TEST(jxrcodec, imageInfoMem)
 {
     std::string imagePath = getTestImagePath("tissue.jxr");
     std::ifstream srcFile(imagePath.c_str(), std::ios::binary);
     std::vector<unsigned char> src((std::istreambuf_iterator<char>(srcFile)), std::istreambuf_iterator<char>());
     uint32_t width(0), height(0);
-    jpegxr_get_image_size(src.data(), (uint32_t)src.size(), width, height);
-    EXPECT_EQ(width, 550);
-    EXPECT_EQ(height, 345);
+    jpegxr_image_info info;
+    jpegxr_get_image_info(src.data(), src.size(), info);
+    EXPECT_EQ(info.width, 550);
+    EXPECT_EQ(info.height, 345);
+    EXPECT_EQ(info.channels, 3);
+    EXPECT_FALSE(info.bit_mask);
+    EXPECT_EQ(info.sample_size, 1);
+    int buffer_size = info.height*info.width*info.channels*info.sample_size;
+    EXPECT_EQ(info.raster_buffer_size, buffer_size);
 }
 
-TEST(jxrcodec, imageSizeFile)
+TEST(jxrcodec, imageInfoFile)
 {
     std::string imagePath = getTestImagePath("tissue.jxr");
     FILE* file = fopen(imagePath.c_str(), "rb");
     uint32_t width(0), height(0);
-    jpegxr_get_image_size(file, width, height);
+    jpegxr_image_info info;
+    jpegxr_get_image_info(file, info);
     fclose(file);
-    EXPECT_EQ(width, 550);
-    EXPECT_EQ(height, 345);
+    EXPECT_EQ(info.width, 550);
+    EXPECT_EQ(info.height, 345);
+    EXPECT_EQ(info.channels, 3);
+    EXPECT_FALSE(info.bit_mask);
+    EXPECT_EQ(info.sample_size, 1);
+    int buffer_size = info.height*info.width*info.channels*info.sample_size;
+    EXPECT_EQ(info.raster_buffer_size, buffer_size);
+}
+
+TEST(jxrcodec, decodeFileJxr2)
+{
+    testJxrFileDecoder("tile16.jxr", "tile16.raw");
 }

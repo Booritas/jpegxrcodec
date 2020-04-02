@@ -79,7 +79,7 @@
 # include <assert.h>
 
 int r_image_header(jxr_image_t image, struct rbitstream*str);
-static int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha);
+int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha);
 static int r_INDEX_TABLE(jxr_image_t image, struct rbitstream*str);
 static int64_t r_PROFILE_LEVEL_INFO(jxr_image_t image, struct rbitstream*str);
 static int r_TILE(jxr_image_t image, struct rbitstream*str);
@@ -524,7 +524,7 @@ int r_image_header(jxr_image_t image, struct rbitstream*str)
     return 0;
 }
 
-static int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha)
+int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha)
 {
     DEBUG("START IMAGE_PLANE_HEADER (bitpos=%zu)\n", _jxr_rbitstream_bitpos(str));
 
