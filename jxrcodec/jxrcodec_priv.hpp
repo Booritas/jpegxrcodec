@@ -81,3 +81,4 @@ public:
 private:
     std::vector<char**> m_buffers;
 };
+
