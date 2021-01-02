@@ -16,6 +16,20 @@ extern struct jxr_image* __make_jxr(void);
 extern int r_image_plane_header(jxr_image_t image, struct rbitstream*str, int alpha);
 }
 
+class OutputHandleKeeper
+{
+public:
+    OutputHandleKeeper(void* handle) {
+        m_handle = handle;
+    }
+    ~OutputHandleKeeper() {
+        if (m_handle)
+            close_file(m_handle);
+    }
+private:
+    void* m_handle;
+};
+
 int decompress_image(byte_stream* bs, jxr_container_t container, void *output_handle, jxr_image_t *pImage, 
 			    unsigned char alpha, jxrflags* jflags)
 {
@@ -156,14 +170,13 @@ void jpegxr_decompress(byte_stream& bs, uint8_t* output_buffer, uint32_t buffer_
     alpha_band_present = jxrc_alpha_band_presence(ifile, 0);
     jxrc_padding_data(ifile, 0);
 
-    void *output_handle(nullptr);
-    MemoryKeeper primary_keeper((char**)&output_handle);
-    output_handle = open_output_file_mem(output_buffer, buffer_size, ifile, jflags.padded_format, 0);
+    void *output_handle = open_output_file_mem(output_buffer, buffer_size, ifile, jflags.padded_format, 0);
+    OutputHandleKeeper primary_keeper(output_handle);
     /*Decode image */
     jxr_image_t image(nullptr), imageAlpha(nullptr);
     jxr_image_t* images[] = {&image, &imageAlpha};
     ImageKeeper image_keeper(images, sizeof(images)/sizeof(images[0]));
-    rc = decompress_image(&bs, ifile, output_handle, &image, 0, &jflags); 
+    rc = decompress_image(&bs, ifile, output_handle, &image, 0, &jflags);
     if(rc < 0)
     {
         throw std::runtime_error("Failed to decompress image");
