@@ -15,9 +15,7 @@ if (MSVC)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-if(APPLE)
-    add_definitions(-Wdeprecated-copy)
-endif()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-copy")
 
 project(${PROJECT_NAME} VERSION ${projectVersion} LANGUAGES C CXX)
 
