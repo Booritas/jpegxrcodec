@@ -15,6 +15,10 @@ if (MSVC)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 endif()
 
+if(APPLE)
+    add_definitions(-Wdeprecated-copy)
+endif()
+
 project(${PROJECT_NAME} VERSION ${projectVersion} LANGUAGES C CXX)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/bin)
