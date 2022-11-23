@@ -1244,9 +1244,14 @@ void close_file(void *handle)
     if(handle == NULL)
         return;
     context *con = (context*)handle;
-    if (con->data.file) fclose(con->data.file);
-    if (con->buf) free(con->buf);
-    free(con);    
+    if(con)
+    {
+        if (con->data.file)
+            fclose(con->data.file);
+        if (con->buf)
+            free(con->buf);
+        free(con);
+    }
 }
 
 void get_file_parameters(void *handle, int *wid, int *hei, int *ncomp, int *bpi, short *sf, short *photometric, 

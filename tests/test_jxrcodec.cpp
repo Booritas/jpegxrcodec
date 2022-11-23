@@ -172,3 +172,8 @@ TEST(jxrcodec, decodeFileJxr2)
 {
     testJxrFileDecoder("tile16.jxr", "tile16.raw");
 }
+
+TEST(jxrcodec, decodeFileJxrCorrupted)
+{
+    EXPECT_THROW(testJxrFileDecoder("corrupted.wdp", "tile16.raw"), std::exception);
+}
